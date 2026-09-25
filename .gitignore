@@ -1,0 +1,14 @@
+# stažená zdrojová data (ČÚZK, OSM) – dají se stáhnout znovu, velké
+/data/
+# rendery, videa, náhledy
+/out/
+/ges/
+__pycache__/
+# systémové a IDE soubory
+.DS_Store
+.idea/
+# data starších verzí webu, stránka je už nenačítá
+web/data/near_h.png
+web/data/near_ortho.jpg
+web/data/far_ortho.jpg
+web/data/near_dmr_h.png

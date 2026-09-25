@@ -1,0 +1,16 @@
+{
+  "type": "FeatureCollection",
+  "name": "Lanova draha Pisarky - Kampus (PRIBLIZNA rekonstrukce z textovych popisu + OSM, presnost cca +-50-100 m)",
+  "features": [
+    {"type": "Feature", "properties": {"kind": "station", "name": "Pisárky – Lipová/Aréna", "note": "u křížení Hlinky × Lipová, nová tram. smyčka Arena Brno", "terrain_m": 219},
+     "geometry": {"type": "Point", "coordinates": [16.5757, 49.1919]}},
+    {"type": "Feature", "properties": {"kind": "station", "name": "Riviéra", "note": "mezistanice před ul. Bauerovou nad zastávkou MHD Riviéra, lávka do areálu Riviéra; stejná přímka jako úsek od Lipové", "terrain_m": 207},
+     "geometry": {"type": "Point", "coordinates": [16.5726, 49.1879]}},
+    {"type": "Feature", "properties": {"kind": "station", "name": "Kampus", "note": "mezistanice v místě zlomu osy, ohyb ul. Netroufalky, u Bike arén Anthropos/Netroufalky; garážování kabin", "terrain_m": 271},
+     "geometry": {"type": "Point", "coordinates": [16.5673, 49.1803]}},
+    {"type": "Feature", "properties": {"kind": "station", "name": "Kampus – terminál", "note": "před FN Brno Bohunice u terminálu Nemocnice Bohunice; trasa podél Netroufalek přes křižovatku Kamenice × Netroufalky", "terrain_m": 279},
+     "geometry": {"type": "Point", "coordinates": [16.5672, 49.1765]}},
+    {"type": "Feature", "properties": {"kind": "line", "name": "osa lanové dráhy"},
+     "geometry": {"type": "LineString", "coordinates": [[16.5757, 49.1919], [16.5726, 49.1879], [16.5673, 49.1803], [16.5672, 49.1765]]}}
+  ]
+}
