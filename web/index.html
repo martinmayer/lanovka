@@ -150,6 +150,12 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
 /* načítání */
 .loading{position:absolute;inset:0;display:grid;place-items:center;background:var(--bg);z-index:5;transition:opacity .6s}
 .loading.done{opacity:0;pointer-events:none}
+.loading.ready{background:color-mix(in srgb,var(--bg) 55%,transparent);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+.loading.ready .meter{display:none}
+.start{display:flex;align-items:center;gap:10px;border:0;border-radius:999px;background:var(--red);color:var(--red-ink);padding:14px 30px 14px 24px;font-family:var(--f-display);font-weight:700;font-size:26px;letter-spacing:.02em;box-shadow:var(--shadow);margin-top:6px}
+.start svg{width:22px;height:22px;fill:currentColor}
+.start:hover{filter:brightness(1.08)}
+.start-quiet{border:0;background:none;color:var(--ink);font-size:13px;text-decoration:underline;text-underline-offset:3px;padding:6px}
 .loading .box{display:grid;gap:10px;justify-items:center;padding:0 16px;text-align:center}
 .loading .t{font-family:var(--f-display);font-weight:700;font-size:34px}
 .loading .m{font-size:13px;color:var(--muted)}
@@ -250,6 +256,8 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
       <div class="t">Pisárky – Kampus</div>
       <div class="meter"><div id="meter"></div></div>
       <div class="m" id="loadMsg">Načítám data trasy…</div>
+      <button class="start" id="start" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4l13 8-13 8z"/></svg>Nastoupit</button>
+      <button class="start-quiet" id="startQuiet" hidden>nastoupit bez zvuku</button>
     </div>
   </div>
 </div>
@@ -1349,8 +1357,8 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
   ];
   const sound = (() => {
     let ac = null, on = false, master, cabinBus, musicBus, worldBus, noiseBuf;
-    let humGain, windGain, humOsc = [], sirenOsc, sirenGain, sirenPan, arenaPan, arenaBus, crowdGain;
-    let musicNext = 0, musicStep = 0, musicTimer = null, arenaNext = 0, prevSirenD = null, sirenPhase = 0;
+    let humGain, windGain, humOsc = [], arenaPan, arenaBus, crowdGain;
+    let musicNext = 0, musicStep = 0, musicTimer = null, arenaNext = 0;
     let prevS = null, subTimer = null, voice = null;
     const synth = typeof speechSynthesis !== "undefined" ? speechSynthesis : null;
     const pickVoice = () => { if (synth) voice = synth.getVoices().find((v) => /^cs/i.test(v.lang)) || null; };
@@ -1387,20 +1395,16 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
       for (const [f, ty] of [[49, "sawtooth"], [98.4, "sawtooth"], [147, "triangle"]]) { const o = ac.createOscillator(); o.type = ty; o.frequency.value = f; o.connect(lp); o.start(); humOsc.push(o); }
       const ws = ac.createBufferSource(); ws.buffer = noiseBuf; ws.loop = true; const wb = ac.createBiquadFilter(); wb.type = "bandpass"; wb.frequency.value = 650; wb.Q.value = 0.5;
       windGain = ac.createGain(); windGain.gain.value = 0; ws.connect(wb); wb.connect(windGain); windGain.connect(cabinBus); ws.start();
-      // siréna záchranky: dvoutónová 435/580 Hz
-      if (soundAnchors.ambulance) {
-        sirenPan = panner(soundAnchors.ambulance, 30, 1.3);
-        sirenOsc = ac.createOscillator(); sirenOsc.type = "sawtooth"; sirenOsc.frequency.value = 507;
-        const lfo = ac.createOscillator(); lfo.type = "square"; lfo.frequency.value = 0.8; const depth = ac.createGain(); depth.gain.value = 72;
-        lfo.connect(depth); depth.connect(sirenOsc.frequency); lfo.start();
-        const f = ac.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 2200; sirenGain = ac.createGain(); sirenGain.gain.value = 0;
-        sirenOsc.connect(f); f.connect(sirenGain); sirenGain.connect(sirenPan); sirenOsc.start();
-      }
       // arena: šum publika jako podklad
       if (soundAnchors.arena) {
-        arenaPan = panner(soundAnchors.arena, 60, 1.0); arenaBus = ac.createGain(); arenaBus.gain.value = 1; arenaBus.connect(arenaPan);
-        const cs = ac.createBufferSource(); cs.buffer = noiseBuf; cs.loop = true; const cb = ac.createBiquadFilter(); cb.type = "bandpass"; cb.frequency.value = 700; cb.Q.value = 0.7;
-        crowdGain = ac.createGain(); crowdGain.gain.value = 0.18; cs.connect(cb); cb.connect(crowdGain); crowdGain.connect(arenaBus); cs.start();
+        arenaPan = panner(soundAnchors.arena, 140, 0.7);
+        arenaBus = ac.createGain(); arenaBus.gain.value = 1;
+        const ir = ac.createBuffer(2, ac.sampleRate * 2.6, ac.sampleRate);
+        for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 3.2); }
+        const conv = ac.createConvolver(); conv.buffer = ir; const wet = ac.createGain(); wet.gain.value = 0.45; const dry = ac.createGain(); dry.gain.value = 0.8;
+        arenaBus.connect(dry); arenaBus.connect(conv); conv.connect(wet); dry.connect(arenaPan); wet.connect(arenaPan);
+        const cs = ac.createBufferSource(); cs.buffer = noiseBuf; cs.loop = true; const cb = ac.createBiquadFilter(); cb.type = "bandpass"; cb.frequency.value = 650; cb.Q.value = 0.8;
+        crowdGain = ac.createGain(); crowdGain.gain.value = 0.12; cs.connect(cb); cb.connect(crowdGain); crowdGain.connect(arenaBus); cs.start();
       }
       musicNext = ac.currentTime + 0.3; arenaNext = ac.currentTime + 2;
       musicTimer = setInterval(scheduleMusic, 40);
@@ -1452,19 +1456,47 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
       const t = ac.currentTime;
       [[659.3, 0], [523.3, 0.42], [392, 0.84]].forEach(([f, k]) => { tone(cabinBus, t + k, f, 1.1, { gain: 0.22, a: 0.004 }); tone(cabinBus, t + k, f * 2.76, 0.5, { gain: 0.04 }); });
     }
-    function arenaCycle() {
-      // varhany ("charge") a potom „Ko-me-ta!“ + tři tlesknutí, dvakrát
-      let t = arenaNext;
-      const organ = (n, tt, dur) => { for (const [h, g] of [[1, 0.16], [2, 0.08], [3, 0.05], [4, 0.03]]) tone(arenaBus, tt, midi(n) * h, dur, { gain: g, a: 0.01, type: "sine" }); };
-      [[67, 0], [72, 0.22], [76, 0.44], [79, 0.66], [76, 1.0], [79, 1.22]].forEach(([n, k]) => organ(n, t + k, k === 1.22 ? 0.9 : 0.2));
-      t += 2.8;
-      const vowel = (tt, f1, f2, dur, g) => { noise(arenaBus, tt, dur, { f: f1, q: 4, gain: g, a: 0.03 }); noise(arenaBus, tt, dur, { f: f2, q: 5, gain: g * 0.6, a: 0.03 }); };
-      for (let rep = 0; rep < 2; rep++) {
-        vowel(t, 500, 900, 0.22, 0.9); vowel(t + 0.28, 450, 1900, 0.22, 0.9); vowel(t + 0.56, 800, 1250, 0.35, 1.2);
-        for (const k of [1.2, 1.5, 1.8]) noise(arenaBus, t + k, 0.05, { type: "highpass", f: 1200, gain: 1.2 });
-        t += 2.4;
+    // hokejové varhany (Hammond s tremolem) – fanfára „Charge!“
+    function organNote(n, t0, dur, g = 0.12) {
+      const out = ac.createGain(), lp = ac.createBiquadFilter(), trem = ac.createOscillator(), tg = ac.createGain();
+      lp.type = "lowpass"; lp.frequency.value = 4200; out.connect(lp); lp.connect(arenaBus);
+      trem.frequency.value = 6.4; tg.gain.value = g * 0.25; trem.connect(tg); tg.connect(out.gain);
+      out.gain.setValueAtTime(0.0001, t0); out.gain.linearRampToValueAtTime(g, t0 + 0.012); out.gain.setValueAtTime(g, t0 + dur); out.gain.exponentialRampToValueAtTime(0.0001, t0 + dur + 0.12);
+      for (const [h, a] of [[0.5, 0.35], [1, 0.6], [2, 0.45], [3, 0.3], [4, 0.22], [6, 0.12], [8, 0.1]]) {
+        for (const det of [-4, 4]) { const o = ac.createOscillator(); o.frequency.value = midi(n) * h; o.detune.value = det; const og = ac.createGain(); og.gain.value = a * 0.5; o.connect(og); og.connect(out); o.start(t0); o.stop(t0 + dur + 0.2); }
       }
-      arenaNext += 16;
+      trem.start(t0); trem.stop(t0 + dur + 0.2);
+    }
+    // dav zpívá jednu slabiku: souhláska + samohláska (dva formanty), 16 rozladěných hlasů s nepřesným nástupem
+    function crowdSyllable(t0, dur, pitch, cons, f1, f2, loud) {
+      const mix = ac.createGain(), b1 = ac.createBiquadFilter(), b2 = ac.createBiquadFilter(), g = ac.createGain();
+      b1.type = b2.type = "bandpass"; b1.frequency.value = f1; b2.frequency.value = f2; b1.Q.value = 6; b2.Q.value = 9;
+      mix.connect(b1); mix.connect(b2); const g2 = ac.createGain(); g2.gain.value = 0.7; b1.connect(g); b2.connect(g2); g2.connect(g); g.connect(arenaBus);
+      g.gain.setValueAtTime(0.0001, t0); g.gain.linearRampToValueAtTime(1.6 * loud, t0 + 0.05); g.gain.setValueAtTime(1.6 * loud, t0 + dur * 0.7); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur + 0.08);
+      for (let v = 0; v < 16; v++) {
+        const o = ac.createOscillator(), og = ac.createGain(), j = Math.random() * 0.05;
+        o.type = "sawtooth"; o.frequency.value = pitch * (0.94 + Math.random() * 0.12) * (v % 4 === 0 ? 0.5 : 1);
+        og.gain.setValueAtTime(0, t0 + j); og.gain.linearRampToValueAtTime(0.09, t0 + j + 0.03);
+        o.connect(og); og.connect(mix); o.start(t0 + j); o.stop(t0 + dur + 0.15);
+      }
+      if (cons === "k") noise(arenaBus, t0 - 0.03, 0.035, { type: "highpass", f: 1800, gain: 0.9 * loud });
+      if (cons === "t") noise(arenaBus, t0 - 0.02, 0.03, { type: "highpass", f: 3500, gain: 1.0 * loud });
+      if (cons === "m") { const o = ac.createOscillator(), og = ac.createGain(); o.frequency.value = pitch; env(og, t0 - 0.07, 0.01, 0.35 * loud, 0.08); o.connect(og); og.connect(arenaBus); o.start(t0 - 0.07); o.stop(t0 + 0.05); }
+    }
+    function crowdClap(t0, loud = 1) { for (let i = 0; i < 25; i++) noise(arenaBus, t0 + (Math.random() - 0.5) * 0.05, 0.02, { f: 1400 + Math.random() * 1400, q: 1.5, gain: 0.22 * loud }); }
+    function arenaCycle() {
+      let t = arenaNext;
+      [[67, 0, 0.14], [72, 0.18, 0.14], [76, 0.36, 0.14], [79, 0.54, 0.3], [76, 0.9, 0.14], [79, 1.08, 0.9]].forEach(([n, k, d]) => { organNote(n, t + k, d); organNote(n - 12, t + k, d, 0.05); });
+      crowdSyllable(t + 2.2, 0.35, 180, "", 700, 1150, 0.8);  // „hej!“ po fanfáře
+      t += 3.4;
+      for (let rep = 0; rep < 3; rep++) {
+        crowdSyllable(t, 0.26, 196, "k", 450, 800, 1);        // KO
+        crowdSyllable(t + 0.32, 0.24, 196, "m", 420, 1850, 0.9);  // me
+        crowdSyllable(t + 0.64, 0.5, 247, "t", 760, 1250, 1.3);   // TA!
+        crowdClap(t + 1.35); crowdClap(t + 1.62); crowdClap(t + 1.89, 1.2);
+        t += 2.6;
+      }
+      arenaNext += 18;
     }
     function splat() {
       if (!on) return;
@@ -1527,17 +1559,9 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
         // kabina: hučení, vítr, hudba jen v pohledu z kabiny
         const inCab = mode === "cabin", moving = playing && ride < T_UP, v = moving ? vAt(s) : 0;
         cabinBus.gain.setTargetAtTime(inCab ? 1 : 0, t, 0.3);
-        humGain.gain.setTargetAtTime(0.05 + 0.1 * v / 5, t, 0.3);
-        windGain.gain.setTargetAtTime(Math.min(0.22, 0.02 + 0.2 * v * speed / 15), t, 0.3);
+        humGain.gain.setTargetAtTime(0.022 + 0.045 * v / 5, t, 0.3);
+        windGain.gain.setTargetAtTime(Math.min(0.12, 0.01 + 0.1 * v * speed / 15), t, 0.3);
         humOsc.forEach((o, i) => o.detune.setTargetAtTime(-200 + 200 * v / 5, t, 0.4));
-        // siréna: 6 s houká, 14 s ticho; Dopplerův posun podle radiální rychlosti
-        if (sirenOsc) {
-          sirenPhase = (sirenPhase + dt) % 20;
-          sirenGain.gain.setTargetAtTime(sirenPhase < 6 ? 0.28 : 0, t, 0.15);
-          const d = cp.distanceTo(soundAnchors.ambulance);
-          if (prevSirenD !== null && dt > 0) { const vr = clamp((d - prevSirenD) / dt, -80, 80); sirenOsc.detune.setTargetAtTime(1200 * Math.log2(343 / (343 + vr)), t, 0.1); }
-          prevSirenD = d;
-        }
         // havrani: čím blíž nocovišti, tím víc krákání
         if (soundAnchors.flock) {
           const d = cp.distanceTo(soundAnchors.flock), rate = 7 * clamp(1 - d / 700, 0, 1);
@@ -1545,7 +1569,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
           while (birdEvents.length) { const p = birdEvents.pop(); if (Math.random() < 0.5) caw(p, 0.8, Math.random() < 0.2); }
         } else birdEvents.length = 0;
         while (tramEvents.length) { const p = tramEvents.pop(); if (cp.distanceTo(p) < 400) bell(p); }
-        if (arenaBus && t + 0.5 > arenaNext) arenaCycle();
+        if (arenaBus && t + 0.5 > arenaNext) { if (cp.distanceTo(soundAnchors.arena) < 1500) arenaCycle(); else arenaNext += 18; }
       },
     };
   })();
@@ -1642,7 +1666,26 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
   }
   tick();
   drawProfile();
-  requestAnimationFrame((t) => { last = t; frame(t); $("loading").classList.add("done"); if (mode === "cabin") showHint(); });
+  // úvodní obrazovka: kliknutí na „Nastoupit“ je interakce, kterou prohlížeč potřebuje ke spuštění zvuku
+  setPlaying(false);
+  requestAnimationFrame((t) => {
+    last = t; frame(t);
+    const ld = $("loading");
+    ld.classList.add("ready");
+    $("loadMsg").textContent = "Kabina je připravená k odjezdu.";
+    $("start").hidden = false; $("startQuiet").hidden = false; $("start").focus();
+    const board = async (withSound) => {
+      wantSound = withSound;
+      try { localStorage.setItem("lanovka-zvuk", withSound ? "1" : "0"); } catch (e) {}
+      ld.classList.add("done");
+      setPlaying(true);
+      if (withSound) await tryStart(); else sound.disable();
+      syncSoundBtn();
+      if (mode === "cabin") showHint();
+    };
+    $("start").onclick = () => board(true);
+    $("startQuiet").onclick = () => board(false);
+  });
 })().catch((err) => {
   console.error(err);
   const m = document.getElementById("loadMsg");
