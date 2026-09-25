@@ -101,9 +101,16 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
 .info-btn{width:34px;padding:0!important;font-family:var(--f-display)!important;font-weight:700!important;font-size:16px!important}
 
 /* spodní lišta */
-.bar{position:absolute;left:16px;right:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));padding:10px 12px;display:grid;grid-template-columns:auto auto 1fr auto;gap:12px;align-items:center}
+.bar{position:absolute;left:16px;right:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));padding:10px 12px;display:grid;grid-template-columns:auto auto auto 1fr auto;gap:12px;align-items:center}
 .play{width:44px;height:44px;border-radius:50%;border:0;background:var(--red);color:var(--red-ink);display:grid;place-items:center}
 .play svg{width:18px;height:18px;fill:currentColor}
+.snd{width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:var(--chip);display:grid;place-items:center;position:relative}
+.snd svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.snd .spk{fill:currentColor;stroke:none}
+.snd[aria-pressed="false"] .wav,.snd[aria-pressed="true"] .mut{display:none}
+.snd.waiting::after{content:"";position:absolute;top:2px;right:2px;width:9px;height:9px;border-radius:50%;background:var(--red);animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.25}}
+.subtitle{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(128px + env(safe-area-inset-bottom,0px));width:min(640px,calc(100% - 32px));padding:10px 16px;font-size:16px;line-height:1.4;text-align:center;text-wrap:balance}
 .speeds{display:flex;gap:3px;background:var(--chip);padding:3px;border-radius:8px}
 .speeds button{border:0;background:transparent;padding:5px 8px;border-radius:6px;font-family:var(--f-mono);font-size:12.5px}
 .speeds button[aria-pressed="true"]{background:var(--panel-solid);box-shadow:0 1px 3px rgba(0,0,0,.18)}
@@ -156,7 +163,8 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
   .modes{top:auto;bottom:calc(150px + env(safe-area-inset-bottom,0px));right:16px}
   .modes button{padding:6px 9px;font-size:12px}
   .about{top:calc(16px + env(safe-area-inset-top,0px));max-height:calc(100% - 230px)}
-  .bar{grid-template-columns:auto 1fr auto;gap:8px 10px}
+  .bar{grid-template-columns:auto auto 1fr auto;gap:8px 10px}
+  .subtitle{bottom:calc(150px + env(safe-area-inset-bottom,0px));font-size:14px}
   .profile{grid-column:1/-1;grid-row:2;height:62px}
   .note{grid-row:3}
 }
@@ -177,6 +185,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
   <canvas id="view" aria-label="3D scéna lanové dráhy Pisárky – Kampus"></canvas>
   <div class="labels" id="labels"></div>
   <div class="splats" id="splats" aria-hidden="true"></div>
+  <div class="subtitle panel" id="subtitle" role="status" hidden></div>
   <div class="frame on" id="frame" aria-hidden="true"></div>
   <div class="hint panel" id="hint" style="opacity:0">Táhnutím se rozhlédněte · dvojklik vrátí výchozí pohled</div>
 
@@ -222,6 +231,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
 
   <section class="bar panel" aria-label="Přehrávání">
     <button class="play" id="play" aria-label="Pozastavit"><svg viewBox="0 0 24 24" id="playIcon"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg></button>
+    <button class="snd" id="sound" aria-pressed="true" aria-label="Zvuk"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="spk" d="M4 9h4l5-4v14l-5-4H4z"/><path class="wav" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/><path class="mut" d="M16.5 9.5l5 5M21.5 9.5l-5 5"/></svg></button>
     <div class="speeds" role="group" aria-label="Zrychlení">
       <button data-k="1" aria-pressed="false">1×</button>
       <button data-k="3" aria-pressed="true">3×</button>
@@ -616,14 +626,23 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
     [new THREE.BoxGeometry(2.1, 0.28, SEC - 0.8), "#b9bdc1", 3.33],
   ].map(([geo, c, dy]) => { const m = new THREE.InstancedMesh(geo, lambert({ color: hex(c) }), NTRAM * NSEC); m.userData.dy = dy; m.castShadow = true; m.frustumCulled = false; scene.add(m); return m; });
   const _tm = new THREE.Matrix4(), _f = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), HIDE = new THREE.Matrix4().makeScale(0, 0, 0);
+  const tramPrevS = new Float64Array(NTRAM), tramStopped = new Uint8Array(NTRAM);
+  let tramClock = 0;
   function updateTrams(clock) {
     let k = 0;
+    const advanced = clock !== tramClock; tramClock = clock;
     for (const rt of tramRoutes) {
       const cyc = rt.count * HEADWAY;
       for (let j = 0; j < rt.count; j++, k++) {
         const tau = (((clock + rt.phase + j * HEADWAY) % cyc) + cyc) % cyc;
         const vis = tau < rt.trip;
         const sF = vis ? tramS(rt, tau) : 0;
+        if (vis && advanced) {
+          const stopped = Math.abs(sF - tramPrevS[k]) < 1e-4;
+          if (tramStopped[k] && !stopped && tramEvents.length < 6) tramEvents.push(tramPoint(rt, sF).clone());
+          tramStopped[k] = stopped ? 1 : 0;
+        }
+        tramPrevS[k] = sF;
         for (let q = 0; q < NSEC; q++) {
           const slot = k * NSEC + q;
           const s1 = sF - q * (SEC + GAP), s0 = s1 - SEC;
@@ -648,6 +667,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
   }
   const extras = new THREE.Group(); scene.add(extras);
   const pinsExtra = [];
+  const soundAnchors = {}, birdEvents = [], tramEvents = [];
   const blinkers = [];
   const matC = (c) => lambert({ color: hex(c) });
   const glow = (c) => new THREE.MeshBasicMaterial({ color: hex(c) });
@@ -735,6 +755,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
     // záchranka ZZS: žlutá, zelené šachovnicové pruhy, otevřené zadní dveře, modré majáky
     {
       const [x, y] = at(10.5, 1.8), g = spot(x, y, head);
+      soundAnchors.ambulance = W(x, y, groundAt(x, y) + 2.4);
       bx(g, 2.2, 2.55, 3.9, "#f2d31b", 0, 1.72, 0.9);
       bx(g, 2.15, 1.9, 1.9, "#f2d31b", 0, 1.4, -2.0);
       bx(g, 2.0, 0.75, 0.08, "#26313b", 0, 1.9, -2.96);
@@ -860,6 +881,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
       }
       screens.push(poster(0), poster(1));
       pinsExtra.push({ name: "T-Mobile Arena", v: W(cx, cy, plaza + 46), kind: "event" });
+      soundAnchors.arena = W(cx, cy, plaza + 18);
       const top = plaza + arena.h;
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.3, 10, 8), matC("#d9dde1"));
       pole.position.copy(W(cx, cy, top + 5)); scene.add(pole);
@@ -933,6 +955,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
         dz: (rnd() - 0.5) * 30, ecc: 0.6 + rnd() * 0.4, jack: rnd() < 0.2 });
     }
     pinsExtra.push({ name: "Nocoviště havranů", v: W(cx, cy, cz + 45), kind: "event" });
+    soundAnchors.flock = W(cx, cy, cz);
   }
   const NB = ROPE_BIRDS.length + FLOCK.length;
   const birdMat = lambert({ color: 0xffffff, flatShading: true });
@@ -953,6 +976,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
     dmy.rotation.set(0, yaw, flap); dmy.updateMatrix(); bWingL.setMatrixAt(i, dmy.matrix);
     dmy.rotation.set(0, yaw, -flap); dmy.updateMatrix(); bWingR.setMatrixAt(i, dmy.matrix);
   }
+  const ropeLift = new Float32Array(ROPE_BIRDS.length);
   const _bp = new THREE.Vector3(), flockPos = FLOCK.map(() => new THREE.Vector3()), flockHidden = new Float64Array(FLOCK.length);
   let lastSplat = -1e9;
   function splatSVG() {
@@ -983,6 +1007,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
     box.appendChild(b); setTimeout(() => b.remove(), 1200);
     while (box.querySelectorAll(".splat").length > 4) box.querySelector(".splat").remove();
     canvas.classList.remove("shake"); void canvas.offsetWidth; canvas.classList.add("shake");
+    sound.splat();
   }
   function birdStrikes(now) {
     if (mode !== "cabin" || !playing || now - lastSplat < 2500) return;
@@ -999,12 +1024,15 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
     let i = 0;
     for (const b of ROPE_BIRDS) {
       let d = 1e9; for (const s of (b.side === 1 ? up : down)) d = Math.min(d, Math.abs(s - b.s));
-      const lift = smooth(clamp(1 - d / 16, 0, 1));
+      const lift = smooth(clamp(1 - d / 16, 0, 1)), ri = i;
+      if (lift > 0.05 && ropeLift[ri] <= 0.05 && Math.random() < 0.15 && birdEvents.length < 8) birdEvents.push(null);
+      ropeLift[ri] = lift;
       const q = trackXY(b.s, b.side), a = q.a, r = (a.az + 90) * D2R;
       const out = lift * 2.5 * b.side;
       _bp.copy(W(q.x + out * Math.sin(r), q.y + out * Math.cos(r), a.rope + 0.2 + lift * (5 + 2 * Math.sin(b.ph))));
       const yaw = -(a.az + 90 * b.face) * D2R;
       const flap = lift > 0.03 ? 0.25 + Math.sin(t * 22 + b.ph) * 0.9 : -1.25;
+      if (birdEvents.length && birdEvents[birdEvents.length - 1] === null) birdEvents[birdEvents.length - 1] = _bp.clone();
       setBird(i++, _bp, yaw, flap, 1.5);
     }
     for (const b of FLOCK) {
@@ -1166,7 +1194,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
   }
 
   // štítky stanic a podpěr
-  const pins = S.supports.map((p) => {
+  const pins = S.supports.filter((p) => p.kind !== "pylon").map((p) => {
     const el = document.createElement("div");
     el.className = "pin" + (p.kind === "pylon" ? " pylon" : "");
     el.innerHTML = "<i></i>" + p.name;
@@ -1311,6 +1339,234 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
   // počáteční pohled pro volnou kameru: přehled celé trasy od východu
   { const m = axisAt(L * 0.45); camera.position.copy(W(m.x + 1300, m.y - 250, m.rope + 750)); controls.target.copy(W(m.x, m.y, m.rope - 20)); controls.update(); }
 
+  // ------------------------------------------------------------ zvuk: vše syntetizované přes Web Audio, hlášení přes syntézu řeči
+  const ANNOUNCE = [
+    [15, "Vítejte na palubě lanové dráhy Pisárky – Kampus. Během jízdy se nevyklánějte z oken a nekrmte havrany."],
+    [300, "Příští zastávka Riviéra. Cestující jsou upozorňováni na zvýšený výskyt havranů."],
+    [470, "Vážení cestující, lanovka vede nad nocovištěm chráněných ptáků. Neotvírejte okna, neházejte drobečky a nepodávejte žaloby."],
+    [1270, "Mezistanice Kampus. Přestup na tramvaj, sanitku a pohřební službu."],
+    [1680, "Konečná stanice Kampus – terminál. Děkujeme, že jste využili lanovku, která neexistuje."],
+  ];
+  const sound = (() => {
+    let ac = null, on = false, master, cabinBus, musicBus, worldBus, noiseBuf;
+    let humGain, windGain, humOsc = [], sirenOsc, sirenGain, sirenPan, arenaPan, arenaBus, crowdGain;
+    let musicNext = 0, musicStep = 0, musicTimer = null, arenaNext = 0, prevSirenD = null, sirenPhase = 0;
+    let prevS = null, subTimer = null, voice = null;
+    const synth = typeof speechSynthesis !== "undefined" ? speechSynthesis : null;
+    const pickVoice = () => { if (synth) voice = synth.getVoices().find((v) => /^cs/i.test(v.lang)) || null; };
+    if (synth) { pickVoice(); synth.onvoiceschanged = pickVoice; }
+    const midi = (m) => 440 * Math.pow(2, (m - 69) / 12);
+    const setPos = (p, v) => { if (p.positionX) { p.positionX.value = v.x; p.positionY.value = v.y; p.positionZ.value = v.z; } else p.setPosition(v.x, v.y, v.z); };
+    function panner(pos, ref = 20, roll = 1.2) {
+      const p = ac.createPanner(); p.panningModel = "HRTF"; p.distanceModel = "inverse"; p.refDistance = ref; p.rolloffFactor = roll; p.maxDistance = 6000;
+      setPos(p, pos); p.connect(worldBus); return p;
+    }
+    function env(g, t, a, peak, dec) { g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + a + dec); }
+    function tone(out, t, f, dur, { type = "sine", gain = 0.3, a = 0.005, f2 = null, det = 0 } = {}) {
+      const o = ac.createOscillator(), g = ac.createGain(); o.type = type; o.frequency.setValueAtTime(f, t); o.detune.value = det;
+      if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur);
+      env(g, t, a, gain, dur); o.connect(g); g.connect(out); o.start(t); o.stop(t + a + dur + 0.05); return o;
+    }
+    function noise(out, t, dur, { type = "bandpass", f = 1000, q = 1, gain = 0.3, a = 0.002, f2 = null } = {}) {
+      const s = ac.createBufferSource(), bq = ac.createBiquadFilter(), g = ac.createGain();
+      s.buffer = noiseBuf; bq.type = type; bq.frequency.setValueAtTime(f, t); bq.Q.value = q;
+      if (f2) bq.frequency.exponentialRampToValueAtTime(f2, t + dur);
+      env(g, t, a, gain, dur); s.connect(bq); bq.connect(g); g.connect(out); s.start(t, Math.random() * 1.5); s.stop(t + a + dur + 0.05);
+    }
+    function build() {
+      ac = new (window.AudioContext || window.webkitAudioContext)();
+      master = ac.createGain(); master.gain.value = 0.9; master.connect(ac.destination);
+      const comp = ac.createDynamicsCompressor(); comp.connect(master);
+      cabinBus = ac.createGain(); cabinBus.connect(comp);
+      musicBus = ac.createGain(); musicBus.gain.value = 0.22; musicBus.connect(cabinBus);
+      worldBus = ac.createGain(); worldBus.connect(comp);
+      const len = ac.sampleRate * 2; noiseBuf = ac.createBuffer(1, len, ac.sampleRate);
+      const d = noiseBuf.getChannelData(0); let b = 0; for (let i = 0; i < len; i++) { const w = Math.random() * 2 - 1; b = 0.97 * b + 0.03 * w; d[i] = w * 0.5 + b * 2; }
+      // pohon a lano
+      const lp = ac.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 260; humGain = ac.createGain(); humGain.gain.value = 0; lp.connect(humGain); humGain.connect(cabinBus);
+      for (const [f, ty] of [[49, "sawtooth"], [98.4, "sawtooth"], [147, "triangle"]]) { const o = ac.createOscillator(); o.type = ty; o.frequency.value = f; o.connect(lp); o.start(); humOsc.push(o); }
+      const ws = ac.createBufferSource(); ws.buffer = noiseBuf; ws.loop = true; const wb = ac.createBiquadFilter(); wb.type = "bandpass"; wb.frequency.value = 650; wb.Q.value = 0.5;
+      windGain = ac.createGain(); windGain.gain.value = 0; ws.connect(wb); wb.connect(windGain); windGain.connect(cabinBus); ws.start();
+      // siréna záchranky: dvoutónová 435/580 Hz
+      if (soundAnchors.ambulance) {
+        sirenPan = panner(soundAnchors.ambulance, 30, 1.3);
+        sirenOsc = ac.createOscillator(); sirenOsc.type = "sawtooth"; sirenOsc.frequency.value = 507;
+        const lfo = ac.createOscillator(); lfo.type = "square"; lfo.frequency.value = 0.8; const depth = ac.createGain(); depth.gain.value = 72;
+        lfo.connect(depth); depth.connect(sirenOsc.frequency); lfo.start();
+        const f = ac.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 2200; sirenGain = ac.createGain(); sirenGain.gain.value = 0;
+        sirenOsc.connect(f); f.connect(sirenGain); sirenGain.connect(sirenPan); sirenOsc.start();
+      }
+      // arena: šum publika jako podklad
+      if (soundAnchors.arena) {
+        arenaPan = panner(soundAnchors.arena, 60, 1.0); arenaBus = ac.createGain(); arenaBus.gain.value = 1; arenaBus.connect(arenaPan);
+        const cs = ac.createBufferSource(); cs.buffer = noiseBuf; cs.loop = true; const cb = ac.createBiquadFilter(); cb.type = "bandpass"; cb.frequency.value = 700; cb.Q.value = 0.7;
+        crowdGain = ac.createGain(); crowdGain.gain.value = 0.18; cs.connect(cb); cb.connect(crowdGain); crowdGain.connect(arenaBus); cs.start();
+      }
+      musicNext = ac.currentTime + 0.3; arenaNext = ac.currentTime + 2;
+      musicTimer = setInterval(scheduleMusic, 40);
+    }
+    // výtahová bossa nova (Cmaj7 – Am7 – Dm7 – G7), 116 BPM, osminy
+    const CHORDS = [[48, [64, 67, 71, 74]], [45, [64, 67, 69, 72]], [50, [62, 65, 69, 72]], [43, [65, 67, 71, 74]]];
+    const COMP = [1, 0, 0, 1, 0, 0, 1, 0], BASS = [1, 0, 0, 0.6, 1, 0, 0, 0];
+    function scheduleMusic() {
+      if (!on) return;
+      const e8 = 60 / 116 / 2;
+      while (musicNext < ac.currentTime + 0.25) {
+        const bar = Math.floor(musicStep / 8) % 4, st = musicStep % 8, [root, ch] = CHORDS[bar], t = musicNext;
+        if (COMP[st] || (bar % 2 && st === 4)) for (const n of ch) { tone(musicBus, t, midi(n), 0.5, { gain: 0.05 }); tone(musicBus, t, midi(n + 12), 0.25, { gain: 0.012 }); }
+        if (BASS[st]) tone(musicBus, t, midi(st >= 4 ? root + 7 : root), 0.45, { type: "triangle", gain: 0.2 });
+        noise(musicBus, t, 0.05, { type: "highpass", f: 6000, gain: st % 2 ? 0.035 : 0.06 });
+        if (st === 0 || (st === 5 && Math.random() < 0.6)) { const n = ch[Math.floor(Math.random() * 4)] + 12; tone(musicBus, t + 0.02, midi(n), 1.2, { gain: 0.05, a: 0.02 }); }
+        musicNext += e8; musicStep++;
+      }
+    }
+    function caw(pos, loud = 1, jack = false) {
+      const t = ac.currentTime + Math.random() * 0.05, out = pos ? panner(pos, 12, 1.3) : cabinBus;
+      const reps = Math.random() < 0.35 ? 2 : 1;
+      for (let r = 0; r < reps; r++) {
+        const tt = t + r * 0.42, dur = jack ? 0.16 : 0.32 + Math.random() * 0.15, f0 = jack ? 950 + Math.random() * 150 : 480 + Math.random() * 140;
+        const o = ac.createOscillator(), bp = ac.createBiquadFilter(), g = ac.createGain(), am = ac.createOscillator(), ag = ac.createGain();
+        o.type = "sawtooth"; o.frequency.setValueAtTime(f0 * 1.3, tt); o.frequency.exponentialRampToValueAtTime(f0, tt + 0.07); o.frequency.exponentialRampToValueAtTime(f0 * 0.82, tt + dur);
+        bp.type = "bandpass"; bp.frequency.value = jack ? 2100 : 1250; bp.Q.value = 2.5;
+        am.frequency.value = 55 + Math.random() * 30; ag.gain.value = 0.25 * loud; am.connect(ag); ag.connect(g.gain);
+        env(g, tt, 0.02, 0.45 * loud, dur); o.connect(bp); bp.connect(g); g.connect(out);
+        o.start(tt); am.start(tt); o.stop(tt + dur + 0.1); am.stop(tt + dur + 0.1);
+      }
+    }
+    function bell(pos) {
+      const p = panner(pos, 15, 1.2), t = ac.currentTime;
+      for (const k of [0, 0.22]) for (const [f, g] of [[1860, 0.35], [2790, 0.18], [4150, 0.08]]) tone(p, t + k, f, 0.7, { gain: g, a: 0.002 });
+    }
+    function thump(t, v = 1) {
+      tone(cabinBus, t, 85, 0.12, { gain: 0.5 * v, f2: 42 });
+      noise(cabinBus, t, 0.06, { type: "lowpass", f: 500, gain: 0.35 * v });
+      tone(cabinBus, t + 0.01, 1300 + Math.random() * 300, 0.05, { type: "triangle", gain: 0.03 * v });
+    }
+    function clack() {
+      const t = ac.currentTime;
+      noise(cabinBus, t, 0.03, { type: "highpass", f: 2500, gain: 0.4 });
+      tone(cabinBus, t, 1900, 0.08, { type: "square", gain: 0.05, f2: 900 });
+      tone(cabinBus, t + 0.02, 130, 0.18, { gain: 0.35, f2: 70 });
+    }
+    function gong() {
+      const t = ac.currentTime;
+      [[659.3, 0], [523.3, 0.42], [392, 0.84]].forEach(([f, k]) => { tone(cabinBus, t + k, f, 1.1, { gain: 0.22, a: 0.004 }); tone(cabinBus, t + k, f * 2.76, 0.5, { gain: 0.04 }); });
+    }
+    function arenaCycle() {
+      // varhany ("charge") a potom „Ko-me-ta!“ + tři tlesknutí, dvakrát
+      let t = arenaNext;
+      const organ = (n, tt, dur) => { for (const [h, g] of [[1, 0.16], [2, 0.08], [3, 0.05], [4, 0.03]]) tone(arenaBus, tt, midi(n) * h, dur, { gain: g, a: 0.01, type: "sine" }); };
+      [[67, 0], [72, 0.22], [76, 0.44], [79, 0.66], [76, 1.0], [79, 1.22]].forEach(([n, k]) => organ(n, t + k, k === 1.22 ? 0.9 : 0.2));
+      t += 2.8;
+      const vowel = (tt, f1, f2, dur, g) => { noise(arenaBus, tt, dur, { f: f1, q: 4, gain: g, a: 0.03 }); noise(arenaBus, tt, dur, { f: f2, q: 5, gain: g * 0.6, a: 0.03 }); };
+      for (let rep = 0; rep < 2; rep++) {
+        vowel(t, 500, 900, 0.22, 0.9); vowel(t + 0.28, 450, 1900, 0.22, 0.9); vowel(t + 0.56, 800, 1250, 0.35, 1.2);
+        for (const k of [1.2, 1.5, 1.8]) noise(arenaBus, t + k, 0.05, { type: "highpass", f: 1200, gain: 1.2 });
+        t += 2.4;
+      }
+      arenaNext += 16;
+    }
+    function splat() {
+      if (!on) return;
+      const t = ac.currentTime;
+      tone(cabinBus, t, 95, 0.2, { gain: 0.9, f2: 38 });
+      noise(cabinBus, t, 0.22, { f: 1400, q: 0.8, gain: 0.8, f2: 500 });
+      for (let i = 0; i < 6; i++) noise(cabinBus, t + 0.03 + Math.random() * 0.12, 0.03, { f: 2500 + Math.random() * 2000, q: 3, gain: 0.25 });
+      tone(cabinBus, t, 880, 0.12, { type: "triangle", gain: 0.12, f2: 700 });
+      setTimeout(() => on && caw(null, 1.2, false), 330);
+      // hudba se zasekne jako poškrábaná deska
+      const g = musicBus.gain; g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(0, t + 0.06); g.setValueAtTime(0, t + 1.0); g.linearRampToValueAtTime(0.22, t + 1.4);
+      noise(cabinBus, t + 0.05, 0.35, { f: 300, q: 2, gain: 0.3, f2: 3000 });
+    }
+    function subtitle(text) {
+      const el = $("subtitle"); el.textContent = text; el.hidden = false;
+      clearTimeout(subTimer); subTimer = setTimeout(() => { el.hidden = true; }, 2500 + text.length * 70);
+    }
+    function announce(text) {
+      subtitle(text);
+      if (!on) return;
+      gong();
+      if (synth) {
+        setTimeout(() => {
+          if (!on) return;
+          const u = new SpeechSynthesisUtterance(text); u.lang = "cs-CZ"; if (voice) u.voice = voice; u.rate = 1.0; u.pitch = 0.95;
+          synth.cancel(); synth.speak(u);
+        }, 1500);
+      }
+    }
+    function crossing(a, b, x) { return a < x && b >= x; }
+    return {
+      get on() { return on; },
+      async enable() {
+        if (!ac) build();
+        try { await Promise.race([ac.resume(), new Promise((r) => setTimeout(r, 300))]); } catch (e) {}
+        on = ac.state === "running";
+        if (!on) return false;
+        musicNext = Math.max(musicNext, ac.currentTime + 0.1); arenaNext = Math.max(arenaNext, ac.currentTime + 1);
+      },
+      disable() { on = false; if (ac) ac.suspend(); if (synth) synth.cancel(); },
+      splat,
+      update(dt, me, now) {
+        // přejezdy: hlášení, podpěry, stanice (titulky běží i bez zvuku)
+        const s = me.s;
+        if (prevS !== null && s > prevS && s - prevS < 40) {
+          for (const [x, text] of ANNOUNCE) if (crossing(prevS, s, x)) announce(text);
+          if (on && mode === "cabin") {
+            const v = Math.max(0.5, vAt(s) * speed);
+            for (const p of S.supports) {
+              if (p.kind === "pylon" && crossing(prevS, s, p.s)) { const gap = Math.max(0.06, 0.7 / v); for (let i = 0; i < 7; i++) thump(ac.currentTime + i * gap, i % 2 ? 0.6 : 1); }
+              if (p.kind === "station" && (crossing(prevS, s, p.s - 18) || crossing(prevS, s, p.s + 18))) clack();
+            }
+          }
+        }
+        prevS = s;
+        if (!on) return;
+        const t = ac.currentTime, L_ = ac.listener, cp = camera.position, fw = new THREE.Vector3(); camera.getWorldDirection(fw);
+        if (L_.positionX) { L_.positionX.value = cp.x; L_.positionY.value = cp.y; L_.positionZ.value = cp.z; L_.forwardX.value = fw.x; L_.forwardY.value = fw.y; L_.forwardZ.value = fw.z; L_.upX.value = 0; L_.upY.value = 1; L_.upZ.value = 0; }
+        else { L_.setPosition(cp.x, cp.y, cp.z); L_.setOrientation(fw.x, fw.y, fw.z, 0, 1, 0); }
+        // kabina: hučení, vítr, hudba jen v pohledu z kabiny
+        const inCab = mode === "cabin", moving = playing && ride < T_UP, v = moving ? vAt(s) : 0;
+        cabinBus.gain.setTargetAtTime(inCab ? 1 : 0, t, 0.3);
+        humGain.gain.setTargetAtTime(0.05 + 0.1 * v / 5, t, 0.3);
+        windGain.gain.setTargetAtTime(Math.min(0.22, 0.02 + 0.2 * v * speed / 15), t, 0.3);
+        humOsc.forEach((o, i) => o.detune.setTargetAtTime(-200 + 200 * v / 5, t, 0.4));
+        // siréna: 6 s houká, 14 s ticho; Dopplerův posun podle radiální rychlosti
+        if (sirenOsc) {
+          sirenPhase = (sirenPhase + dt) % 20;
+          sirenGain.gain.setTargetAtTime(sirenPhase < 6 ? 0.28 : 0, t, 0.15);
+          const d = cp.distanceTo(soundAnchors.ambulance);
+          if (prevSirenD !== null && dt > 0) { const vr = clamp((d - prevSirenD) / dt, -80, 80); sirenOsc.detune.setTargetAtTime(1200 * Math.log2(343 / (343 + vr)), t, 0.1); }
+          prevSirenD = d;
+        }
+        // havrani: čím blíž nocovišti, tím víc krákání
+        if (soundAnchors.flock) {
+          const d = cp.distanceTo(soundAnchors.flock), rate = 7 * clamp(1 - d / 700, 0, 1);
+          if (Math.random() < rate * dt) { const p = flockPos[Math.floor(Math.random() * flockPos.length)]; caw(p, 1, Math.random() < 0.2); }
+          while (birdEvents.length) { const p = birdEvents.pop(); if (Math.random() < 0.5) caw(p, 0.8, Math.random() < 0.2); }
+        } else birdEvents.length = 0;
+        while (tramEvents.length) { const p = tramEvents.pop(); if (cp.distanceTo(p) < 400) bell(p); }
+        if (arenaBus && t + 0.5 > arenaNext) arenaCycle();
+      },
+    };
+  })();
+  let wantSound = true;
+  try { wantSound = localStorage.getItem("lanovka-zvuk") !== "0"; } catch (e) {}
+  const syncSoundBtn = () => {
+    const b = $("sound"); b.setAttribute("aria-pressed", wantSound);
+    b.classList.toggle("waiting", wantSound && !sound.on);
+    b.setAttribute("aria-label", !wantSound ? "Zapnout zvuk" : sound.on ? "Vypnout zvuk" : "Zvuk se spustí po prvním kliknutí");
+    b.title = b.getAttribute("aria-label");
+  };
+  const tryStart = async () => { if (wantSound && !sound.on) { try { await sound.enable(); } catch (e) {} } syncSoundBtn(); };
+  $("sound").onclick = async () => {
+    if (wantSound && sound.on) { wantSound = false; sound.disable(); }
+    else { wantSound = true; await tryStart(); }
+    try { localStorage.setItem("lanovka-zvuk", wantSound ? "1" : "0"); } catch (e) {}
+    syncSoundBtn();
+  };
+  for (const ev of ["pointerdown", "keydown", "touchend"]) window.addEventListener(ev, (e) => { if (e.target.closest && e.target.closest("#sound")) return; tryStart(); }, true);
+  syncSoundBtn(); tryStart();
+
   // ------------------------------------------------------------ smyčka
   const dirOf = (h, p) => new THREE.Vector3(Math.sin(h * D2R) * Math.cos(p * D2R), Math.sin(p * D2R), -Math.cos(h * D2R) * Math.cos(p * D2R));
   let last = performance.now(), hudT = 0;
@@ -1327,6 +1583,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
     updateExtras(now);
     updateBirds(now, ride);
     birdStrikes(now);
+    sound.update(dt, me, now);
 
     if (mode === "cabin") {
       const a = axisAt(me.s - 12), b = axisAt(me.s + 12);
