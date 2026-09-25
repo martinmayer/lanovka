@@ -1357,13 +1357,11 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
     [1680, "Konečná stanice Kampus – terminál. Děkujeme, že jste využili lanovku, která neexistuje."],
   ];
   const sound = (() => {
-    let ac = null, on = false, master, cabinBus, musicBus, worldBus, noiseBuf;
+    let ac = null, on = false, master, cabinBus, musicBus, worldBus, noiseBuf, annBus, annSrc = null;
+    const annBuf = [];
     let humGain, windGain, humOsc = [], arenaPan, arenaBus, crowdGain;
     let musicNext = 0, musicStep = 0, musicTimer = null, arenaNext = 0;
-    let prevS = null, subTimer = null, voice = null, lastResume = 0;
-    const synth = typeof speechSynthesis !== "undefined" ? speechSynthesis : null;
-    const pickVoice = () => { if (synth) voice = synth.getVoices().find((v) => /^cs/i.test(v.lang)) || null; };
-    if (synth) { pickVoice(); synth.onvoiceschanged = pickVoice; }
+    let prevS = null, subTimer = null, lastResume = 0;
     const midi = (m) => 440 * Math.pow(2, (m - 69) / 12);
     const setPos = (p, v) => { if (p.positionX) { p.positionX.value = v.x; p.positionY.value = v.y; p.positionZ.value = v.z; } else p.setPosition(v.x, v.y, v.z); };
     function panner(pos, ref = 20, roll = 1.2) {
@@ -1390,6 +1388,10 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
       const comp = ac.createDynamicsCompressor(); comp.connect(master);
       cabinBus = ac.createGain(); cabinBus.connect(comp);
       musicBus = ac.createGain(); musicBus.gain.value = 0.22; musicBus.connect(cabinBus);
+      annBus = ac.createGain(); annBus.gain.value = 1; annBus.connect(comp);
+      // namluvená hlášení (web/audio, ženský hlas, vygenerováno skriptem make_hlaseni.py)
+      ANNOUNCE.forEach((_, i) => fetch(`audio/hlaseni_${i + 1}.mp3`).then((r) => r.arrayBuffer()).then((b) => ac.decodeAudioData(b))
+        .then((buf) => { annBuf[i] = buf; }).catch(() => {}));
       worldBus = ac.createGain(); worldBus.connect(comp);
       const len = ac.sampleRate * 2; noiseBuf = ac.createBuffer(1, len, ac.sampleRate);
       const d = noiseBuf.getChannelData(0); let b = 0; for (let i = 0; i < len; i++) { const w = Math.random() * 2 - 1; b = 0.97 * b + 0.03 * w; d[i] = w * 0.5 + b * 2; }
@@ -1465,7 +1467,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
     }
     function gong() {
       const t = ac.currentTime;
-      [[659.3, 0], [523.3, 0.42], [392, 0.84]].forEach(([f, k]) => { tone(cabinBus, t + k, f, 1.1, { gain: 0.22, a: 0.004 }); tone(cabinBus, t + k, f * 2.76, 0.5, { gain: 0.04 }); });
+      [[659.3, 0], [523.3, 0.42], [392, 0.84]].forEach(([f, k]) => { tone(annBus, t + k, f, 1.1, { gain: 0.22, a: 0.004 }); tone(annBus, t + k, f * 2.76, 0.5, { gain: 0.04 }); });
     }
     // hokejové varhany (Hammond s tremolem) – fanfára „Charge!“
     function organNote(n, t0, dur, g = 0.12) {
@@ -1528,28 +1530,21 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
       const el = $("subtitle"); el.textContent = text; el.hidden = false;
       clearTimeout(subTimer); subTimer = setTimeout(() => { el.hidden = true; }, 2500 + text.length * 70);
     }
-    function announce(text) {
+    function announce(text, idx) {
       subtitle(text);
       if (!on) return;
       gong();
-      if (synth) {
-        setTimeout(() => {
-          if (!on) return;
-          if (synth.speaking || synth.pending) synth.cancel();
-          setTimeout(() => {  // Chrome na Androidu zahodí promluvu zavolanou hned po cancel()
-            const u = new SpeechSynthesisUtterance(text); u.lang = "cs-CZ"; if (voice) u.voice = voice; u.rate = 1.0; u.pitch = 0.95;
-            synth.resume(); synth.speak(u);
-          }, 120);
-        }, 1500);
-      }
+      if (!annBuf[idx]) return;
+      setTimeout(() => {
+        if (!on) return;
+        if (annSrc) try { annSrc.stop(); } catch (e) {}
+        const src = ac.createBufferSource(), t = ac.currentTime, dur = annBuf[idx].duration, g = musicBus.gain;
+        src.buffer = annBuf[idx]; src.connect(annBus); src.start(); annSrc = src;
+        g.cancelScheduledValues(t); g.setTargetAtTime(0.06, t, 0.2); g.setTargetAtTime(0.22, t + dur, 0.6);  // ztišit hudbu
+        src.onended = () => { src.disconnect(); if (annSrc === src) annSrc = null; };
+      }, 1400);
     }
     function crossing(a, b, x) { return a < x && b >= x; }
-    // mobilní prohlížeče pustí syntézu řeči jen tehdy, když první promluva vznikne přímo při klepnutí
-    let speechUnlocked = false;
-    function unlockSpeech() {
-      if (!synth || speechUnlocked) return;
-      try { pickVoice(); const u = new SpeechSynthesisUtterance(" "); u.volume = 0; u.lang = "cs-CZ"; synth.speak(u); speechUnlocked = true; } catch (e) {}
-    }
     return {
       get on() { return on; },
       async enable() {
@@ -1559,13 +1554,13 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
         if (!on) return false;
         musicNext = Math.max(musicNext, ac.currentTime + 0.1); arenaNext = Math.max(arenaNext, ac.currentTime + 1);
       },
-      disable() { on = false; if (ac) ac.suspend(); if (synth) synth.cancel(); },
-      splat, unlockSpeech,
+      disable() { on = false; if (ac) ac.suspend(); if (annSrc) try { annSrc.stop(); } catch (e) {} },
+      splat,
       update(dt, me, now) {
         // přejezdy: hlášení, podpěry, stanice (titulky běží i bez zvuku)
         const s = me.s;
         if (prevS !== null && s > prevS && s - prevS < 40) {
-          for (const [x, text] of ANNOUNCE) if (crossing(prevS, s, x)) announce(text);
+          ANNOUNCE.forEach(([x, text], i) => { if (crossing(prevS, s, x)) announce(text, i); });
           if (on && mode === "cabin") {
             const v = Math.max(0.5, vAt(s) * speed);
             for (const p of S.supports) {
@@ -1608,13 +1603,12 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
   };
   const tryStart = async () => { if (wantSound) { try { await sound.enable(); } catch (e) {} } syncSoundBtn(); };
   $("sound").onclick = async () => {
-    sound.unlockSpeech();
     if (wantSound && sound.on) { wantSound = false; sound.disable(); }
     else { wantSound = true; await tryStart(); }
     try { localStorage.setItem("lanovka-zvuk", wantSound ? "1" : "0"); } catch (e) {}
     syncSoundBtn();
   };
-  for (const ev of ["pointerdown", "keydown", "touchend"]) window.addEventListener(ev, (e) => { if (wantSound) sound.unlockSpeech(); if (e.target.closest && e.target.closest("#sound")) return; tryStart(); }, true);
+  for (const ev of ["pointerdown", "keydown", "touchend"]) window.addEventListener(ev, (e) => { if (e.target.closest && e.target.closest("#sound")) return; tryStart(); }, true);
   syncSoundBtn(); tryStart();
 
   // ------------------------------------------------------------ smyčka
@@ -1709,7 +1703,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
       syncSoundBtn();
       if (mode === "cabin") showHint();
     };
-    $("start").onclick = () => { sound.unlockSpeech(); board(true); };
+    $("start").onclick = () => board(true);
     $("startQuiet").onclick = () => board(false);
   });
 })().catch((err) => {
