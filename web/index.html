@@ -1293,7 +1293,13 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
     try { localStorage.setItem("lanovka-panel", open ? "1" : "0"); } catch (e) {}
   }
   $("boardFold").onclick = () => setBoard(board.classList.contains("collapsed"));
-  try { if (localStorage.getItem("lanovka-panel") === "0") setBoard(false); } catch (e) {}
+  const touchUI = matchMedia("(max-width: 760px), (pointer: coarse)").matches;
+  {
+    let pref = null; try { pref = localStorage.getItem("lanovka-panel"); } catch (e) {}
+    if (pref === "0" || (pref === null && touchUI)) { board.classList.add("collapsed"); $("boardFold").setAttribute("aria-expanded", "false"); $("boardFold").setAttribute("aria-label", "Rozbalit panel"); }
+  }
+  $("hint").textContent = touchUI ? "Táhnutím prstem se rozhlédněte · dvojité klepnutí vrátí výchozí pohled"
+    : "Táhnutím myší se rozhlédněte · dvojklik vrátí výchozí pohled";
   const toggleAbout = (on) => { $("about").hidden = !on; $("infoBtn").setAttribute("aria-pressed", on); };
   $("infoBtn").onclick = () => toggleAbout($("about").hidden);
   $("aboutClose").onclick = () => toggleAbout(false);
@@ -1309,7 +1315,17 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
     yawOff -= (e.clientX - drag.x) * 0.18; pitchOff = clamp(pitchOff - (e.clientY - drag.y) * 0.15, -60, 50);
     drag = { x: e.clientX, y: e.clientY };
   });
-  canvas.addEventListener("pointerup", () => drag = null);
+  let tapStart = null, lastTap = null;
+  canvas.addEventListener("pointerdown", (e) => { tapStart = { x: e.clientX, y: e.clientY, t: performance.now() }; });
+  canvas.addEventListener("pointerup", (e) => {
+    drag = null;
+    if (e.pointerType !== "touch" || !tapStart) return;
+    const now = performance.now(), moved = Math.hypot(e.clientX - tapStart.x, e.clientY - tapStart.y);
+    if (moved > 12 || now - tapStart.t > 300) { lastTap = null; return; }  // tah, ne klepnutí
+    if (lastTap && now - lastTap.t < 350 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 40) {
+      yawOff = YAW0; pitchOff = 0; lastTap = null;
+    } else lastTap = { x: e.clientX, y: e.clientY, t: now };
+  });
   canvas.addEventListener("dblclick", () => { yawOff = YAW0; pitchOff = 0; });
 
   // posuvník po profilu
