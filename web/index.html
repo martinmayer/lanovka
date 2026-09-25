@@ -1535,12 +1535,21 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
       if (synth) {
         setTimeout(() => {
           if (!on) return;
-          const u = new SpeechSynthesisUtterance(text); u.lang = "cs-CZ"; if (voice) u.voice = voice; u.rate = 1.0; u.pitch = 0.95;
-          synth.cancel(); synth.speak(u);
+          if (synth.speaking || synth.pending) synth.cancel();
+          setTimeout(() => {  // Chrome na Androidu zahodí promluvu zavolanou hned po cancel()
+            const u = new SpeechSynthesisUtterance(text); u.lang = "cs-CZ"; if (voice) u.voice = voice; u.rate = 1.0; u.pitch = 0.95;
+            synth.resume(); synth.speak(u);
+          }, 120);
         }, 1500);
       }
     }
     function crossing(a, b, x) { return a < x && b >= x; }
+    // mobilní prohlížeče pustí syntézu řeči jen tehdy, když první promluva vznikne přímo při klepnutí
+    let speechUnlocked = false;
+    function unlockSpeech() {
+      if (!synth || speechUnlocked) return;
+      try { pickVoice(); const u = new SpeechSynthesisUtterance(" "); u.volume = 0; u.lang = "cs-CZ"; synth.speak(u); speechUnlocked = true; } catch (e) {}
+    }
     return {
       get on() { return on; },
       async enable() {
@@ -1551,7 +1560,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
         musicNext = Math.max(musicNext, ac.currentTime + 0.1); arenaNext = Math.max(arenaNext, ac.currentTime + 1);
       },
       disable() { on = false; if (ac) ac.suspend(); if (synth) synth.cancel(); },
-      splat,
+      splat, unlockSpeech,
       update(dt, me, now) {
         // přejezdy: hlášení, podpěry, stanice (titulky běží i bez zvuku)
         const s = me.s;
@@ -1599,12 +1608,13 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
   };
   const tryStart = async () => { if (wantSound) { try { await sound.enable(); } catch (e) {} } syncSoundBtn(); };
   $("sound").onclick = async () => {
+    sound.unlockSpeech();
     if (wantSound && sound.on) { wantSound = false; sound.disable(); }
     else { wantSound = true; await tryStart(); }
     try { localStorage.setItem("lanovka-zvuk", wantSound ? "1" : "0"); } catch (e) {}
     syncSoundBtn();
   };
-  for (const ev of ["pointerdown", "keydown", "touchend"]) window.addEventListener(ev, (e) => { if (e.target.closest && e.target.closest("#sound")) return; tryStart(); }, true);
+  for (const ev of ["pointerdown", "keydown", "touchend"]) window.addEventListener(ev, (e) => { if (wantSound) sound.unlockSpeech(); if (e.target.closest && e.target.closest("#sound")) return; tryStart(); }, true);
   syncSoundBtn(); tryStart();
 
   // ------------------------------------------------------------ smyčka
@@ -1699,7 +1709,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
       syncSoundBtn();
       if (mode === "cabin") showHint();
     };
-    $("start").onclick = () => board(true);
+    $("start").onclick = () => { sound.unlockSpeech(); board(true); };
     $("startQuiet").onclick = () => board(false);
   });
 })().catch((err) => {
