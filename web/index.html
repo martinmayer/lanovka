@@ -63,6 +63,7 @@
   --p-grid:rgba(231,234,229,.10);
   --shadow:0 6px 24px rgba(0,0,0,.4);
 }
+[hidden]{display:none!important}
 html,body{height:100%}
 body{margin:0;font-size:14px}
 body{background:var(--bg);color:var(--ink);font-family:var(--f-body);overflow:hidden}
@@ -1254,7 +1255,6 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
   const YAW0 = 20;  // výchozí pohled z kabiny mírně doprava (LED obrazovka, billboardy)
   let mode = "cabin", yawOff = YAW0, pitchOff = 0;
   $("tAll").textContent = fmtT(T_UP);
-  ride = tOfS(70);
 
   const controls = new THREE.OrbitControls(camera, canvas);
   controls.enabled = false; controls.enableDamping = true; controls.dampingFactor = 0.08;
