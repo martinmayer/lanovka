@@ -1348,6 +1348,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
   { const m = axisAt(L * 0.45); camera.position.copy(W(m.x + 1300, m.y - 250, m.rope + 750)); controls.target.copy(W(m.x, m.y, m.rope - 20)); controls.update(); }
 
   // ------------------------------------------------------------ zvuk: vše syntetizované přes Web Audio, hlášení přes syntézu řeči
+  const SHOW_SUBTITLES = false;  // titulky hlášení: zatím vypnuté
   const ANNOUNCE = [
     [15, "Vítejte na palubě lanové dráhy Pisárky – Kampus. Během jízdy se nevyklánějte z oken a nekrmte havrany."],
     [300, "Příští zastávka Riviéra. Cestující jsou upozorňováni na zvýšený výskyt havranů."],
@@ -1512,6 +1513,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
       noise(cabinBus, t + 0.05, 0.35, { f: 300, q: 2, gain: 0.3, f2: 3000 });
     }
     function subtitle(text) {
+      if (!SHOW_SUBTITLES) return;
       const el = $("subtitle"); el.textContent = text; el.hidden = false;
       clearTimeout(subTimer); subTimer = setTimeout(() => { el.hidden = true; }, 2500 + text.length * 70);
     }
