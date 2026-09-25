@@ -1397,7 +1397,8 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
       windGain = ac.createGain(); windGain.gain.value = 0; ws.connect(wb); wb.connect(windGain); windGain.connect(cabinBus); ws.start();
       // arena: šum publika jako podklad
       if (soundAnchors.arena) {
-        arenaPan = panner(soundAnchors.arena, 140, 0.7);
+        arenaPan = panner(soundAnchors.arena, 70, 1);
+        arenaPan.distanceModel = "linear"; arenaPan.maxDistance = 450;  // slyšet jen v okolí areny
         arenaBus = ac.createGain(); arenaBus.gain.value = 1;
         const ir = ac.createBuffer(2, ac.sampleRate * 2.6, ac.sampleRate);
         for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 3.2); }
@@ -1559,8 +1560,8 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
         // kabina: hučení, vítr, hudba jen v pohledu z kabiny
         const inCab = mode === "cabin", moving = playing && ride < T_UP, v = moving ? vAt(s) : 0;
         cabinBus.gain.setTargetAtTime(inCab ? 1 : 0, t, 0.3);
-        humGain.gain.setTargetAtTime(0.022 + 0.045 * v / 5, t, 0.3);
-        windGain.gain.setTargetAtTime(Math.min(0.12, 0.01 + 0.1 * v * speed / 15), t, 0.3);
+        humGain.gain.setTargetAtTime(0.01 + 0.02 * v / 5, t, 0.3);
+        windGain.gain.setTargetAtTime(Math.min(0.06, 0.005 + 0.05 * v * speed / 15), t, 0.3);
         humOsc.forEach((o, i) => o.detune.setTargetAtTime(-200 + 200 * v / 5, t, 0.4));
         // havrani: čím blíž nocovišti, tím víc krákání
         if (soundAnchors.flock) {
@@ -1569,7 +1570,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);out
           while (birdEvents.length) { const p = birdEvents.pop(); if (Math.random() < 0.5) caw(p, 0.8, Math.random() < 0.2); }
         } else birdEvents.length = 0;
         while (tramEvents.length) { const p = tramEvents.pop(); if (cp.distanceTo(p) < 400) bell(p); }
-        if (arenaBus && t + 0.5 > arenaNext) { if (cp.distanceTo(soundAnchors.arena) < 1500) arenaCycle(); else arenaNext += 18; }
+        if (arenaBus && t + 0.5 > arenaNext) { if (cp.distanceTo(soundAnchors.arena) < 500) arenaCycle(); else arenaNext += 18; }
       },
     };
   })();
